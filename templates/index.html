@@ -1,1 +1,79 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Monitor Solana</title>
+<style>
+  :root { --bg:#0f1115; --card:#181b22; --txt:#e8eaed; --mut:#8b93a1; --ok:#3ddc97; --bd:#272b35; }
+  @media (prefers-color-scheme: light) { :root { --bg:#f5f6f8; --card:#fff; --txt:#16181d; --mut:#5d6573; --ok:#0a8f5b; --bd:#dfe2e8; } }
+  body { margin:0; font:15px/1.5 system-ui,sans-serif; background:var(--bg); color:var(--txt); padding:20px; }
+  h1 { font-size:1.3rem; margin:0 0 4px; } h2 { font-size:1.05rem; margin:0 0 10px; }
+  .mut { color:var(--mut); font-size:.85rem; }
+  .card { background:var(--card); border:1px solid var(--bd); border-radius:10px; padding:16px; margin:16px 0; }
+  table { width:100%; border-collapse:collapse; } th,td { text-align:left; padding:6px 8px; border-bottom:1px solid var(--bd); font-size:.9rem; }
+  .wrap { overflow-x:auto; } a { color:var(--ok); } .top { color:var(--ok); font-weight:600; }
+  code { font-size:.8rem; word-break:break-all; }
+</style>
+</head>
+<body>
+<h1>Monitor Solana</h1>
+<div class="mut" id="status">Carregando…</div>
 
+<div class="card"><h2>Ranking: maior volume de compra (últimos 5 min)</h2>
+  <div class="wrap"><table id="ranking"></table></div></div>
+<div id="tokens"></div>
+<div class="card"><h2>Histórico (último ciclo = topo)</h2>
+  <div class="wrap"><table id="history"></table></div></div>
+<p class="mut">Volume de compra é uma estimativa: volume total do par × proporção de transações de compra. Dados: DexScreener, RPC Solana e pump.fun.</p>
+
+<script>
+const $ = id => document.getElementById(id);
+const fmt = n => n == null ? "—" : Number(n).toLocaleString("pt-BR", {maximumFractionDigits: 2});
+function el(tag, props = {}, ...kids) {
+  const e = document.createElement(tag);
+  Object.assign(e, props);
+  kids.flat().forEach(k => e.append(k));
+  return e;
+}
+function link(href, text) { return href ? el("a", {href, target: "_blank", rel: "noopener", textContent: text}) : document.createTextNode(text || "—"); }
+function short(s) { return s ? s.slice(0, 4) + "…" + s.slice(-4) : "—"; }
+function row(cells, head) { return el("tr", {}, cells.map(c => el(head ? "th" : "td", {}, c))); }
+
+function render(d) {
+  $("status").textContent = d.updated_at ? "Atualizado: " + new Date(d.updated_at).toLocaleString("pt-BR") + " (a cada 1 min)" : "Aguardando primeiro ciclo…";
+  const r = $("ranking"); r.replaceChildren(row(["#", "Moeda", "Compra est. 5m (USD)", "Nº compras 5m"], true));
+  d.ranking.forEach((x, i) => r.append(row([String(i + 1), el("span", {className: i === 0 ? "top" : "", textContent: x.name}), fmt(x.buy_volume_5m_est), fmt(x.buys_5m)])));
+
+  const box = $("tokens"); box.replaceChildren();
+  d.tokens.forEach(t => {
+    const m = t.market || {}, c = t.creator || {};
+    const card = el("div", {className: "card"});
+    card.append(el("h2", {}, t.name, " ", link(t.solscan, "Solscan"), " · ", m.dextools ? link(m.dextools, "DEXTools") : ""));
+    card.append(el("div", {className: "mut"}, el("code", {textContent: t.mint})));
+    card.append(el("p", {textContent: `Preço: $${m.price_usd ?? "—"} · Vol 5m: $${fmt(m.volume_5m)} · Vol 1h: $${fmt(m.volume_1h)} · Liquidez: $${fmt(m.liquidity_usd)}`}));
+
+    card.append(el("strong", {textContent: "Maiores carteiras"}));
+    const ht = el("table"); ht.append(row(["Dono", "Quantidade", "% supply"], true));
+    (t.holders || []).forEach(h => ht.append(row([link(h.solscan, short(h.owner)), fmt(h.amount), h.percent == null ? "—" : h.percent + "%"])));
+    card.append(el("div", {className: "wrap"}, ht));
+    card.append(el("div", {className: "mut", textContent: "A maior carteira pode ser o pool de liquidez ou a bonding curve."}));
+
+    card.append(el("p", {}, el("strong", {textContent: "Carteira criadora: "}), c.creator ? link(c.solscan, short(c.creator)) : "não encontrada", c.source ? ` (${c.source})` : ""));
+    if (c.created_coins && c.created_coins.length) {
+      const ct = el("table"); ct.append(row(["Moeda", "Símbolo", "Mint"], true));
+      c.created_coins.forEach(k => ct.append(row([k.name || "—", k.symbol || "—", link("https://solscan.io/token/" + k.mint, short(k.mint))])));
+      card.append(el("div", {className: "wrap"}, ct));
+    }
+    if (t.errors) card.append(el("div", {className: "mut", textContent: "Avisos: " + t.errors.join(" | ")}));
+    box.append(card);
+  });
+
+  const h = $("history"); h.replaceChildren(row(["Horário", "Líder", "Compra est. 5m"], true));
+  d.history.slice(0, 30).forEach(x => h.append(row([new Date(x.at).toLocaleTimeString("pt-BR"), x.top || "—", fmt(x.ranking[0]?.buy_volume_5m_est)])));
+}
+async function load() { try { render(await (await fetch("/api/data")).json()); } catch (e) { $("status").textContent = "Erro ao carregar dados"; } }
+load(); setInterval(load, 15000);
+</script>
+</body>
+</html>
